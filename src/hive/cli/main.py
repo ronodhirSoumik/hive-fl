@@ -6,11 +6,15 @@ building packages, key management, running diagnostics and automated demos.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 import typer
 
+from hive.core.config import HostConfig
 from hive.core.errors import HiveError
+from hive.host.app import run_host
+from hive.host.tunnel import run_doctor
 from hive.package.builder import build_package, build_package_from_dir
 from hive.package.reader import extract_package, inspect_package, verify_package
 from hive.package.signing import (
@@ -41,7 +45,7 @@ def keygen(
     priv, pub = generate_keypair()
     save_private_key(priv, out_p)
     fp = fingerprint(pub)
-    typer.echo(f"Generated Ed25519 keypair.")
+    typer.echo("Generated Ed25519 keypair.")
     typer.echo(f"Private key saved to: {out_p}")
     typer.echo(f"Author key fingerprint: {fp}")
 
@@ -64,7 +68,24 @@ def host(
     resume: bool = typer.Option(False, "--resume", help="Resume previous session if present"),
 ) -> None:
     """Start a federated learning Host server."""
-    typer.echo(f"Starting Hive Host for package {package} on port {api_port}...")
+    cfg = HostConfig(
+        api_port=api_port,
+        admin_port=admin_port,
+        total_rounds=rounds,
+        min_clients=min_clients,
+        max_clients_per_round=max_clients,
+        aggregation=aggregation,
+        round_timeout_s=round_timeout,
+        server_clip_norm=server_clip,
+        tunnel=tunnel,
+        public_url=public_url,
+        require_approval=require_approval,
+        workdir=Path(workdir),
+    )
+    try:
+        asyncio.run(run_host(cfg, package, resume=resume))
+    except KeyboardInterrupt:
+        typer.echo("\nHost server stopped by user.")
 
 
 @app.command()
@@ -103,7 +124,6 @@ def package_build(
 ) -> None:
     """Build and sign a .hivepkg package archive."""
     try:
-        # Resolve private key
         if key:
             priv_key = load_private_key(key)
         else:
@@ -194,7 +214,20 @@ def package_verify(
 @app.command()
 def doctor() -> None:
     """Run diagnostics on environment, Docker, Python version and network."""
-    typer.echo("Running Hive environment diagnostics...")
+    typer.echo("Running Hive environment diagnostics...\n")
+    report = run_doctor()
+    py = report["python"]
+    typer.echo(f"  [Python]      Version {py['version']} ({'PASS' if py['ok'] else 'FAIL: >=3.10 required'})")
+    torch_info = report["torch"]
+    typer.echo(f"  [PyTorch]     Version {torch_info['version']} (CUDA Available: {torch_info['cuda_available']})")
+    doc = report["docker"]
+    typer.echo(f"  [Docker]      Daemon reachable: {doc['installed']}")
+    cf = report["cloudflared"]
+    typer.echo(f"  [Cloudflare]  cloudflared installed: {cf['installed']}")
+    ports = report["ports"]
+    typer.echo(f"  [Ports]       API :9000 free: {ports['api_port_9000_free']} | Admin :8000 free: {ports['admin_port_8000_free']}")
+    typer.echo(f"  [Network]     LAN IP: {report['network']['lan_ip']}\n")
+    typer.echo("Diagnostics complete.")
 
 
 @app.command()
