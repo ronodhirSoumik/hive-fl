@@ -1,12 +1,26 @@
 ﻿"""
 Hive CLI main entrypoint.
 Command-line interface for hosting sessions, joining federated training,
-building packages, running diagnostics and automated demos.
+building packages, key management, running diagnostics and automated demos.
 """
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import typer
+
+from hive.core.errors import HiveError
+from hive.package.builder import build_package, build_package_from_dir
+from hive.package.reader import extract_package, inspect_package, verify_package
+from hive.package.signing import (
+    fingerprint,
+    generate_keypair,
+    load_private_key,
+    public_key_to_hex,
+    save_private_key,
+)
+from hive.core.schemas import DataRequirements, Hyperparameters, Manifest
 
 app = typer.Typer(
     name="hive",
@@ -16,6 +30,20 @@ app = typer.Typer(
 
 package_app = typer.Typer(help="Manage and build signed .hivepkg model packages.")
 app.add_typer(package_app, name="package")
+
+
+@app.command()
+def keygen(
+    out: str = typer.Option("~/.hive/keys/author_key.pem", "--out", "-o", help="Output path for Ed25519 private key"),
+) -> None:
+    """Generate a new Ed25519 signing keypair for model packaging."""
+    out_p = Path(out).expanduser()
+    priv, pub = generate_keypair()
+    save_private_key(priv, out_p)
+    fp = fingerprint(pub)
+    typer.echo(f"Generated Ed25519 keypair.")
+    typer.echo(f"Private key saved to: {out_p}")
+    typer.echo(f"Author key fingerprint: {fp}")
 
 
 @app.command()
@@ -70,28 +98,97 @@ def package_build(
     local_epochs: int = typer.Option(2, "--local-epochs", help="Default local epochs"),
     batch_size: int = typer.Option(32, "--batch-size", help="Default batch size"),
     lr: float = typer.Option(1e-3, "--lr", help="Default learning rate"),
-    key: str | None = typer.Option(None, "--key", help="Private key file for signing"),
+    key: str | None = typer.Option(None, "--key", "-k", help="Private key file for signing (auto-generated if omitted)"),
     out: str = typer.Option("package.hivepkg", "--out", "-o", help="Output .hivepkg file"),
 ) -> None:
     """Build and sign a .hivepkg package archive."""
-    typer.echo(f"Building package {name} into {out}...")
+    try:
+        # Resolve private key
+        if key:
+            priv_key = load_private_key(key)
+        else:
+            default_key = Path("~/.hive/keys/default.pem").expanduser()
+            if default_key.exists():
+                priv_key = load_private_key(default_key)
+            else:
+                priv_key, pub = generate_keypair()
+                save_private_key(priv_key, default_key)
+                typer.echo(f"Generated default signing key at: {default_key}")
+
+        if src:
+            pkg_path = build_package_from_dir(src, priv_key, out_path=out)
+        elif model_path and preprocessor_path:
+            m_code = Path(model_path).read_text(encoding="utf-8")
+            p_code = Path(preprocessor_path).read_text(encoding="utf-8")
+            manifest = Manifest(
+                package_name=name,
+                version=version,
+                description=f"Hive model package {name}",
+                model_entrypoint="model.py:Model",
+                preprocessor_entrypoint="preprocess.py:Preprocessor",
+                loss=loss,
+                metrics=metrics,
+                hyperparameters=Hyperparameters(
+                    local_epochs=local_epochs,
+                    batch_size=batch_size,
+                    learning_rate=lr,
+                ),
+                data_requirements=DataRequirements(description="Dataset"),
+            )
+            pkg_path = build_package(
+                manifest=manifest,
+                model_code=m_code,
+                preprocessor_code=p_code,
+                requirements_text="torch\nnumpy",
+                private_key=priv_key,
+                out_path=out,
+            )
+        else:
+            typer.echo("Error: Must provide either --src directory or both --model-path and --preprocessor-path.")
+            raise typer.Exit(code=1)
+
+        typer.echo(f"Successfully built signed package: {pkg_path}")
+        fp = fingerprint(priv_key)
+        typer.echo(f"Signed with author key fingerprint: {fp}")
+
+    except HiveError as e:
+        typer.echo(f"Package build failed: {e}")
+        raise typer.Exit(code=1)
 
 
 @package_app.command("inspect")
 def package_inspect(
     package: str = typer.Argument(..., help="Path to .hivepkg file"),
+    as_json: bool = typer.Option(False, "--json", help="Output inspection report as JSON"),
 ) -> None:
     """Inspect metadata, manifest and signatures of a .hivepkg archive."""
-    typer.echo(f"Inspecting package: {package}")
+    try:
+        info = inspect_package(package)
+        if as_json:
+            typer.echo(json.dumps(info, indent=2))
+        else:
+            typer.echo(f"Package: {info['package_name']} v{info['version']}")
+            typer.echo(f"Description: {info['description']}")
+            typer.echo(f"Author Fingerprint: {info['author_fingerprint']}")
+            typer.echo(f"Content Digest: {info['content_digest']}")
+            typer.echo(f"Files: {', '.join(info['files'])}")
+    except Exception as e:
+        typer.echo(f"Inspection failed: {e}")
+        raise typer.Exit(code=1)
 
 
 @package_app.command("verify")
 def package_verify(
     package: str = typer.Argument(..., help="Path to .hivepkg file"),
-    fingerprint: str | None = typer.Option(None, "--fingerprint", help="Expected author key fingerprint"),
+    fingerprint: str | None = typer.Option(None, "--fingerprint", "-fp", help="Expected author key fingerprint"),
 ) -> None:
     """Verify cryptographic signature and digest integrity of a .hivepkg archive."""
-    typer.echo(f"Verifying package: {package}")
+    try:
+        verify_package(package, expected_fingerprint=fingerprint)
+        typer.echo(f"Verification PASS: Package '{package}' has a valid signature and unaltered content digest.")
+    except Exception as e:
+        typer.echo(f"Verification FAIL: {e}")
+        raise typer.Exit(code=1)
 
 
 @app.command()

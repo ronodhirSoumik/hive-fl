@@ -1,5 +1,5 @@
 ﻿"""
-Smoke test verifying importability of all Hive packages.
+Smoke test verifying importability of all Hive packages and core modules.
 """
 
 import importlib
@@ -13,8 +13,19 @@ import pytest
         "hive.core",
         "hive.core.config",
         "hive.core.logging",
-        "hive.cli.main",
+        "hive.core.contracts",
+        "hive.core.schemas",
+        "hive.core.errors",
+        "hive.core.uri",
+        "hive.core.hashing",
+        "hive.core.tensors",
+        "hive.core.dp",
         "hive.package",
+        "hive.package.signing",
+        "hive.package.lint",
+        "hive.package.builder",
+        "hive.package.reader",
+        "hive.cli.main",
         "hive.host",
         "hive.host.aggregation",
         "hive.client",

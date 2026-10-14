@@ -1,6 +1,7 @@
 ﻿"""
 Hive Core module.
-Contains configurations, schemas, contracts, errors, URI utilities, and logging.
+Contains configurations, schemas, contracts, errors, URI utilities, logging,
+hashing, tensor operations, and differential privacy utilities.
 """
 
 from hive.core.config import ClientConfig, HostConfig, load_client_config, load_host_config
@@ -11,6 +12,7 @@ from hive.core.contracts import (
     ValidationResult,
     validate_model_contract,
 )
+from hive.core.dp import DPAccountant, RDP_ORDERS, compute_rdp_gaussian, estimate_epsilon, rdp_to_dp
 from hive.core.errors import (
     AggregationError,
     ConfigurationError,
@@ -22,6 +24,7 @@ from hive.core.errors import (
     SandboxError,
     SignatureError,
 )
+from hive.core.hashing import bytes_sha256, file_sha256, model_hash
 from hive.core.logging import get_logger, setup_logging
 from hive.core.schemas import (
     AggregationConfig,
@@ -45,6 +48,20 @@ from hive.core.schemas import (
     ValidateResult,
     WorkerConfig,
     WorkerResult,
+)
+from hive.core.tensors import (
+    add_gaussian_noise,
+    apply_delta,
+    bytes_to_state_dict,
+    clip_by_norm,
+    compute_delta,
+    cosine_similarity,
+    flatten,
+    l2_norm,
+    per_layer_norms,
+    state_dict_to_bytes,
+    unflatten,
+    validate_update,
 )
 from hive.core.uri import HiveURI, build_hive_uri, parse_hive_uri
 
@@ -93,4 +110,24 @@ __all__ = [
     "HiveURI",
     "build_hive_uri",
     "parse_hive_uri",
+    "file_sha256",
+    "bytes_sha256",
+    "model_hash",
+    "state_dict_to_bytes",
+    "bytes_to_state_dict",
+    "compute_delta",
+    "apply_delta",
+    "validate_update",
+    "flatten",
+    "unflatten",
+    "l2_norm",
+    "per_layer_norms",
+    "cosine_similarity",
+    "clip_by_norm",
+    "add_gaussian_noise",
+    "compute_rdp_gaussian",
+    "rdp_to_dp",
+    "estimate_epsilon",
+    "DPAccountant",
+    "RDP_ORDERS",
 ]
