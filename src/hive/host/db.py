@@ -1,4 +1,4 @@
-﻿"""
+"""
 SQLite persistence layer for Hive Host sessions, rounds, nodes, metrics, and audit events.
 """
 
@@ -18,6 +18,7 @@ class HostDatabase:
 
     def __init__(self, db_path: Path | str) -> None:
         self.db_path = str(db_path)
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -149,7 +150,8 @@ class HostDatabase:
                     total_rounds, 0, join_token, now
                 ),
             )
-            return self.get_session() or {}
+            row = conn.execute("SELECT * FROM session WHERE session_id = ?", (session_id,)).fetchone()
+            return dict(row) if row else {}
 
     def get_session(self) -> dict[str, Any] | None:
         with self._get_connection() as conn:

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Federated Learning Round Orchestrator for Hive Host.
 Manages session lifecycle, round transitions, client claims, update reception,
 Byzantine-robust aggregation, persistence, and checkpointing.
@@ -221,15 +221,18 @@ class Orchestrator:
                         # Calculate round weighted metrics
                         tot_eval_samples = sum(u.meta.num_eval_samples for u in accepted_updates)
                         tot_train_samples = sum(u.meta.num_train_samples for u in accepted_updates)
+                        eval_weights = tot_eval_samples if tot_eval_samples > 0 else tot_train_samples
+                        w_fn = (lambda u: u.meta.num_eval_samples) if tot_eval_samples > 0 else (lambda u: u.meta.num_train_samples)
+
                         w_train_loss = (
                             sum(u.meta.train_loss * u.meta.num_train_samples for u in accepted_updates) / max(1, tot_train_samples)
                         )
                         w_eval_loss = (
-                            sum(u.meta.eval_loss * u.meta.num_eval_samples for u in accepted_updates) / max(1, tot_eval_samples)
+                            sum(u.meta.eval_loss * w_fn(u) for u in accepted_updates) / max(1, eval_weights)
                         )
                         w_eval_acc = (
-                            sum(u.meta.eval_metrics.get("accuracy", 0.0) * u.meta.num_eval_samples for u in accepted_updates)
-                            / max(1, tot_eval_samples)
+                            sum(u.meta.eval_metrics.get("accuracy", 0.0) * w_fn(u) for u in accepted_updates)
+                            / max(1, eval_weights)
                         )
                         duration = now - current_round["opened_at"]
 

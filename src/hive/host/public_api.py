@@ -1,10 +1,11 @@
-﻿"""
+"""
 Public FastAPI endpoints (/v1) for contributor node interaction with the Hive Host.
 Strictly separates public federated protocol endpoints from local admin management.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import Annotated
 
 from fastapi import (
     APIRouter,
+    Body,
     Depends,
     FastAPI,
     File,
@@ -149,7 +151,7 @@ def create_public_api_router(orchestrator: Orchestrator, package_path: Path | st
 
     @router.post("/ready")
     async def declare_ready(
-        data: dict[str, Any],
+        data: dict[str, Any] = Body(...),
         node_id: str = Depends(authenticate_node),
     ) -> dict[str, str]:
         ok = data.get("data_ok", False)
@@ -234,10 +236,13 @@ def create_public_api_router(orchestrator: Orchestrator, package_path: Path | st
                 detail={"code": "ERR_INVALID_META", "message": f"Invalid update metadata: {e}"},
             )
 
-        if isinstance(delta_file, UploadFile):
-            delta_bytes = await delta_file.read()
-        elif isinstance(delta_file, bytes):
-            delta_bytes = delta_file
+        if hasattr(delta_file, "read"):
+            content = delta_file.read()
+            delta_bytes = await content if asyncio.iscoroutine(content) else content
+        elif isinstance(delta_file, (bytes, bytearray)):
+            delta_bytes = bytes(delta_file)
+        elif isinstance(delta_file, str):
+            delta_bytes = delta_file.encode("latin-1")
         else:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid delta file object")
 
