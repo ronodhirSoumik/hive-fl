@@ -1,0 +1,1 @@
+﻿"""Hive command-line interface package."""

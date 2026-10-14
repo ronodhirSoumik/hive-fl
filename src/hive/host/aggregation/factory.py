@@ -1,0 +1,1 @@
+﻿"""factory module for Hive."""

@@ -1,0 +1,1 @@
+﻿"""idle module for Hive."""

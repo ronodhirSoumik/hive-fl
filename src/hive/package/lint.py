@@ -1,0 +1,1 @@
+﻿"""lint module for Hive."""

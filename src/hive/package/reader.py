@@ -1,0 +1,1 @@
+﻿"""reader module for Hive."""

@@ -1,0 +1,1 @@
+﻿"""privacy module for Hive."""
