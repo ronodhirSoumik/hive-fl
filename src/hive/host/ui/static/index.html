@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hive — Training Dashboard & Model Verifier</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header & Status Bar -->
+    <header class="header-bar">
+      <div class="header-top">
+        <div class="brand-section">
+          <span class="brand-icon" aria-hidden="true">🐝</span>
+          <h1 class="brand-title" id="session-title">Hive Session</h1>
+        </div>
+        <div class="header-badges">
+          <span class="badge badge-running" id="session-status" role="status">CONNECTING</span>
+          <span class="badge" id="transport-badge" role="status">🔒 HTTPS</span>
+          <span class="badge badge-completed" id="round-display">Round 0 / 0</span>
+        </div>
+      </div>
+
+      <div class="header-summary-row">
+        <div class="summary-metric">
+          <span class="summary-metric-label">Active Contributor Nodes</span>
+          <div class="summary-metric-value" id="active-nodes-count">0</div>
+          <div class="chips-row">
+            <span class="chip" id="nodes-eligible">Eligible: 0</span>
+            <span class="chip" id="nodes-training">Training: 0</span>
+            <span class="chip" id="nodes-waiting">Waiting: 0</span>
+            <span class="chip" id="nodes-offline">Offline: 0</span>
+          </div>
+        </div>
+
+        <div class="summary-metric">
+          <span class="summary-metric-label">Current Round Progress</span>
+          <div class="summary-metric-value">
+            <span id="round-claimed-count">0</span> / <span id="round-submitted-count">0</span>
+          </div>
+          <div class="chips-row">
+            <span class="chip active" id="round-deadline-timer">Deadline: --:--</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-controls">
+        <div class="join-uri-container">
+          <label for="join-uri-input" class="summary-metric-label" style="display:none;">Join URI</label>
+          <input type="text" id="join-uri-input" class="input-copy" readonly value="Loading session URI..." aria-label="Federated Learning Session Join URI">
+          <button id="btn-copy-uri" class="btn btn-secondary btn-sm" aria-label="Copy Join URI to clipboard">
+            📋 Copy URI
+          </button>
+        </div>
+
+        <div class="button-group">
+          <button id="btn-pause" class="btn btn-warning btn-sm" aria-label="Pause current training session">
+            ⏸ Pause
+          </button>
+          <button id="btn-resume" class="btn btn-primary btn-sm" aria-label="Resume paused training session" style="display:none;">
+            ▶ Resume
+          </button>
+          <button id="btn-rotate-token" class="btn btn-secondary btn-sm" aria-label="Rotate join token">
+            🔄 Rotate Token
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="tabs-nav" role="tablist" aria-label="Dashboard views">
+      <button class="tab-btn active" id="tab-btn-training" role="tab" aria-selected="true" aria-controls="tab-training">
+        📈 Training Progress
+      </button>
+      <button class="tab-btn" id="tab-btn-contributors" role="tab" aria-selected="false" aria-controls="tab-contributors">
+        👥 Contributors
+      </button>
+      <button class="tab-btn" id="tab-btn-privacy" role="tab" aria-selected="false" aria-controls="tab-privacy">
+        🛡️ Privacy & Guarantees
+      </button>
+      <button class="tab-btn" id="tab-btn-verification" role="tab" aria-selected="false" aria-controls="tab-verification">
+        🔍 Model Verification
+      </button>
+    </nav>
+
+    <!-- Tab 1: Training -->
+    <main class="tab-content active" id="tab-training" role="tabpanel" aria-labelledby="tab-btn-training">
+      <div class="dashboard-grid">
+        <section class="card" aria-labelledby="card-loss-title">
+          <h2 class="card-title" id="card-loss-title">Training & Evaluation Loss vs. Round</h2>
+          <div class="chart-wrapper">
+            <canvas id="chart-loss" aria-label="Loss curves chart"></canvas>
+          </div>
+          <div id="loss-empty-state" class="empty-state" style="display:none;">
+            <div class="empty-icon">📊</div>
+            <p>No round data available yet. Waiting for contributors to submit updates.</p>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="card-acc-title">
+          <h2 class="card-title" id="card-acc-title">Evaluation Accuracy vs. Round (%)</h2>
+          <div class="chart-wrapper">
+            <canvas id="chart-accuracy" aria-label="Evaluation accuracy chart"></canvas>
+          </div>
+          <div id="acc-empty-state" class="empty-state" style="display:none;">
+            <div class="empty-icon">🎯</div>
+            <p>Accuracy metrics will populate once round evaluation completes.</p>
+          </div>
+        </section>
+      </div>
+
+      <section class="card" aria-labelledby="card-events-title">
+        <h2 class="card-title" id="card-events-title">Live Session Event Log (Recent 50)</h2>
+        <div class="event-log-container" id="events-list" role="log" aria-live="polite">
+          <div class="event-entry INFO">
+            <span class="event-time">--:--:--</span>
+            <span class="event-msg">Connecting to Host server...</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Tab 2: Contributors -->
+    <section class="tab-content" id="tab-contributors" role="tabpanel" aria-labelledby="tab-btn-contributors">
+      <div class="card" aria-labelledby="card-contrib-chart-title">
+        <h2 class="card-title" id="card-contrib-chart-title">Contribution Share by Contributor Node (%)</h2>
+        <div class="chart-wrapper" style="height: 220px;">
+          <canvas id="chart-contributions" aria-label="Contribution share bar chart"></canvas>
+        </div>
+      </div>
+
+      <div class="card" aria-labelledby="card-contrib-table-title">
+        <h2 class="card-title" id="card-contrib-table-title">Registered Contributor Nodes</h2>
+        <div class="table-responsive">
+          <table id="table-contributors" aria-label="Contributor nodes metrics and controls">
+            <thead>
+              <tr>
+                <th scope="col">Nickname</th>
+                <th scope="col">State</th>
+                <th scope="col">Rounds</th>
+                <th scope="col">Samples</th>
+                <th scope="col">Acc / Rej</th>
+                <th scope="col">Mean Norm</th>
+                <th scope="col">Mean Cosine</th>
+                <th scope="col">Outliers</th>
+                <th scope="col">Share (%)</th>
+                <th scope="col">Data (Up / Down)</th>
+                <th scope="col">Last Seen</th>
+                <th scope="col">Est. ε</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="contributors-body">
+              <tr>
+                <td colspan="13" class="empty-state">
+                  <div class="empty-icon">👥</div>
+                  Waiting for clients to join the session...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 3: Privacy & Guarantees -->
+    <section class="tab-content" id="tab-privacy" role="tabpanel" aria-labelledby="tab-btn-privacy">
+      <div class="banner-highlight" id="privacy-banner-highlight">
+        <span style="font-size: 1.5rem;">🔒</span>
+        <div>
+          <div style="font-size: 1.05rem; font-weight: 700;">Raw data bytes received: 0 (server accepts only weight updates)</div>
+          <div style="font-size: 0.8125rem; font-weight: normal; margin-top: 0.25rem;">
+            Hive hosts ingest only serialized tensor parameters via safetensors. Local data samples never cross the network boundary.
+          </div>
+        </div>
+      </div>
+
+      <div class="privacy-grid">
+        <article class="privacy-card" id="card-privacy-transport">
+          <div class="privacy-card-header">
+            <h3 class="privacy-card-title">1. Transport Security</h3>
+            <span class="status-dot green" id="dot-privacy-transport" aria-label="Transport status indicator"></span>
+          </div>
+          <p class="privacy-card-desc" id="desc-privacy-transport">
+            TLS encrypted channel active. Model weights and update vectors are shielded in transit from MITM eavesdropping.
+          </p>
+        </article>
+
+        <article class="privacy-card" id="card-privacy-raw-data">
+          <div class="privacy-card-header">
+            <h3 class="privacy-card-title">2. Raw Data Guard</h3>
+            <span class="status-dot green" id="dot-privacy-raw-data" aria-label="Raw data guard indicator"></span>
+          </div>
+          <p class="privacy-card-desc">
+            Raw data bytes received: <strong>0 (server accepts only weight updates)</strong>. Client raw data files are mounted read-only inside an isolated local sandbox.
+          </p>
+        </article>
+
+        <article class="privacy-card" id="card-privacy-update-ratio">
+          <div class="privacy-card-header">
+            <h3 class="privacy-card-title">3. Update-Only Ratio</h3>
+            <span class="status-dot green" id="dot-privacy-update-ratio" aria-label="Update only ratio indicator"></span>
+          </div>
+          <p class="privacy-card-desc" id="desc-privacy-update-ratio">
+            100% of payloads parsed strictly as safetensors parameter deltas. Non-tensor metadata is restricted to execution counters.
+          </p>
+        </article>
+
+        <article class="privacy-card" id="card-privacy-dp">
+          <div class="privacy-card-header">
+            <h3 class="privacy-card-title">4. Differential Privacy</h3>
+            <span class="status-dot amber" id="dot-privacy-dp" aria-label="Differential privacy indicator"></span>
+          </div>
+          <p class="privacy-card-desc" id="desc-privacy-dp">
+            Client-side L2 gradient clipping and calibrated Gaussian perturbation bounding membership leakage risk.
+          </p>
+        </article>
+
+        <article class="privacy-card" id="card-privacy-anonymity">
+          <div class="privacy-card-header">
+            <h3 class="privacy-card-title">5. Anonymity Floor (Quorum)</h3>
+            <span class="status-dot green" id="dot-privacy-anonymity" aria-label="Anonymity floor indicator"></span>
+          </div>
+          <p class="privacy-card-desc" id="desc-privacy-anonymity">
+            Server enforces a minimum client quorum before aggregating, preventing single-contributor inversion attacks.
+          </p>
+        </article>
+
+        <article class="privacy-card" id="card-privacy-defenses">
+          <div class="privacy-card-header">
+            <h3 class="privacy-card-title">6. Poisoning Defenses</h3>
+            <span class="status-dot green" id="dot-privacy-defenses" aria-label="Poisoning defenses indicator"></span>
+          </div>
+          <p class="privacy-card-desc" id="desc-privacy-defenses">
+            Norm-clipping and multi-metric outlier detection active. Outlier vectors are filtered prior to aggregation.
+          </p>
+        </article>
+
+        <article class="privacy-card" id="card-privacy-limitations" style="grid-column: 1 / -1;">
+          <div class="privacy-card-header">
+            <h3 class="privacy-card-title">7. Honest Limitations & Disclosure</h3>
+            <span class="status-dot green" aria-label="Limitations disclosure indicator"></span>
+          </div>
+          <p class="privacy-card-desc" id="desc-privacy-limitations">
+            Differential Privacy epsilon is an estimated upper-bound. Model weights alone can theoretically leak membership signals without sufficient noise. Hive is a technical coordination tool; regulatory and privacy compliance remains the responsibility of the system deployer.
+          </p>
+        </article>
+      </div>
+
+      <div class="card" aria-labelledby="card-byte-accounting-title">
+        <h2 class="card-title" id="card-byte-accounting-title">Byte Accounting & Ingestion Ledger</h2>
+        <div class="table-responsive">
+          <table aria-label="Byte accounting ledger">
+            <thead>
+              <tr>
+                <th scope="col">Payload Classification</th>
+                <th scope="col">Total Ingested</th>
+                <th scope="col">Percentage</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Raw Contributor Data Files (Audio, Images, CSVs)</strong></td>
+                <td id="raw-data-bytes" class="mono" style="color: var(--color-success); font-weight: 700;">0 B</td>
+                <td>0.0%</td>
+                <td><span class="badge badge-running">BLOCKED BY DESIGN</span></td>
+              </tr>
+              <tr>
+                <td>Model Weight Deltas (Safetensors)</td>
+                <td id="weight-data-bytes" class="mono">0 B</td>
+                <td>99.8%</td>
+                <td><span class="badge badge-completed">VALIDATED</span></td>
+              </tr>
+              <tr>
+                <td>Control Messages & Metadata JSON</td>
+                <td id="meta-data-bytes" class="mono">0 B</td>
+                <td>0.2%</td>
+                <td><span class="badge badge-completed">VALIDATED</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 4: Model Verification (Weight Verifier) -->
+    <section class="tab-content" id="tab-verification" role="tabpanel" aria-labelledby="tab-btn-verification">
+      <div class="card" aria-labelledby="card-verifier-title">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <h2 class="card-title" id="card-verifier-title">Model-Weight Cryptographic Verifier</h2>
+            <p style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.25rem;">
+              Recomputes SHA-256 state hashes across rounds to guarantee integrity and detect checkpoint tampering.
+            </p>
+          </div>
+          <div class="button-group">
+            <button id="btn-verify-model" class="btn btn-primary" aria-label="Verify checkpoint hash integrity">
+              🛡️ Verify Checkpoint
+            </button>
+            <button id="btn-download-model" class="btn btn-secondary" aria-label="Download aggregated model weights">
+              ⬇ Download Model
+            </button>
+          </div>
+        </div>
+
+        <div id="verify-result-banner" class="result-banner" role="status" aria-live="assertive"></div>
+
+        <div class="mono" id="verify-instructions" style="background: var(--bg-app); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); color: var(--text-muted); font-size: 0.75rem;">
+          To verify independently: sha256sum final_model.safetensors
+        </div>
+      </div>
+
+      <div class="card" aria-labelledby="card-hash-chain-title">
+        <h2 class="card-title" id="card-hash-chain-title">Cryptographic Hash Chain</h2>
+        <div class="table-responsive">
+          <table id="table-hash-chain" aria-label="Model hash chain per round">
+            <thead>
+              <tr>
+                <th scope="col">Round</th>
+                <th scope="col">Base Model Hash (In)</th>
+                <th scope="col">Aggregated Hash (Out)</th>
+                <th scope="col">Aggregator Used</th>
+                <th scope="col">Checkpoint On Disk</th>
+              </tr>
+            </thead>
+            <tbody id="hash-chain-body">
+              <tr>
+                <td colspan="5" class="empty-state">
+                  <div class="empty-icon">🔗</div>
+                  Hash chain records will appear once round 1 aggregates.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <div class="card" aria-labelledby="card-layer-chart-title">
+          <h2 class="card-title" id="card-layer-chart-title">Per-Layer Delta L2 Norm (Latest Round)</h2>
+          <div class="chart-wrapper">
+            <canvas id="chart-layer-norms" aria-label="Per layer delta norm chart"></canvas>
+          </div>
+        </div>
+
+        <div class="card" aria-labelledby="card-global-chart-title">
+          <h2 class="card-title" id="card-global-chart-title">Global Model Weight Norm Across Rounds</h2>
+          <div class="chart-wrapper">
+            <canvas id="chart-global-norms" aria-label="Global weight norm chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="round-detail-container" aria-labelledby="card-round-detail-title">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+          <h2 class="card-title" id="card-round-detail-title">Round Contribution Details</h2>
+          <div id="aggregator-info" class="badge badge-completed">Aggregator: FedAvg</div>
+        </div>
+        <div class="table-responsive">
+          <table aria-label="Per-node update norms and verification details">
+            <thead>
+              <tr>
+                <th scope="col">Node Nickname</th>
+                <th scope="col">Delta L2 Norm</th>
+                <th scope="col">Cosine Similarity</th>
+                <th scope="col">Base Hash Matches</th>
+                <th scope="col">Delta SHA-256</th>
+                <th scope="col">Status</th>
+                <th scope="col">Outlier</th>
+              </tr>
+            </thead>
+            <tbody id="round-updates-body">
+              <tr>
+                <td colspan="7" class="empty-state">No round selected or no updates recorded yet.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Vendored scripts; zero external requests -->
+  <script src="/static/vendor/chart.umd.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

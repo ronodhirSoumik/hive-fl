@@ -1,4 +1,4 @@
-﻿"""
+"""
 Application assembly for the Hive Host.
 Builds and serves both the Public FL API and the localized Admin Dashboard API.
 """
@@ -13,7 +13,8 @@ from typing import Any
 import uvicorn
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.staticfiles import StaticFiles
 
 from hive.core.config import HostConfig
 from hive.core.errors import HiveError
@@ -73,6 +74,24 @@ def create_host_apps(
         docs_url="/docs",
         redoc_url=None,
     )
+
+    static_dir = Path(__file__).parent / "ui" / "static"
+    if static_dir.exists():
+        @admin_app.get("/static/vendor/chart.umd.js")
+        async def chart_alias() -> FileResponse:
+            js_file = static_dir / "vendor" / "chart.umd.js"
+            if js_file.exists():
+                return FileResponse(js_file)
+            return FileResponse(static_dir / "vendor" / "chart.umd.min.js")
+
+        admin_app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+        @admin_app.get("/")
+        async def admin_index(token: str | None = None) -> FileResponse:
+            resp = FileResponse(static_dir / "index.html")
+            if token:
+                resp.set_cookie(key="hive_admin_token", value=token, httponly=False, samesite="lax")
+            return resp
 
     admin_router = create_admin_api_router(orchestrator)
     admin_app.include_router(admin_router)

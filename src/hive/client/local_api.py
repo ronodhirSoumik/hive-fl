@@ -24,7 +24,8 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.staticfiles import StaticFiles
 
 from hive.client.agent import ClientAgent
 from hive.core.errors import HiveError
@@ -256,6 +257,24 @@ def create_local_app(agent: ClientAgent, ui_token: str | None = None) -> FastAPI
     async def get_logs() -> list[dict[str, Any]]:
         """Returns recent client event and state transition logs."""
         return agent.log_records
+
+    static_dir = Path(__file__).parent / "ui" / "static"
+    if static_dir.exists():
+        @app.get("/static/vendor/chart.umd.js")
+        async def client_chart_alias() -> FileResponse:
+            js_file = static_dir / "vendor" / "chart.umd.js"
+            if js_file.exists():
+                return FileResponse(js_file)
+            return FileResponse(static_dir / "vendor" / "chart.umd.min.js")
+
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+        @app.get("/")
+        async def client_index(token: str | None = None) -> FileResponse:
+            resp = FileResponse(static_dir / "index.html")
+            if token:
+                resp.set_cookie(key="ui_token", value=token, httponly=False, samesite="lax")
+            return resp
 
     app.include_router(router)
     return app

@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hive — Contributor Client</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="client-app">
+    <!-- Stepper Navigation -->
+    <nav class="stepper-container" aria-label="Contribution Workflow Steps">
+      <ol class="stepper">
+        <li class="step-item active" id="step-nav-1" data-step="1">
+          <div class="step-number">1</div>
+          <div class="step-title">Connect</div>
+        </li>
+        <li class="step-item" id="step-nav-2" data-step="2">
+          <div class="step-number">2</div>
+          <div class="step-title">Review & Approve</div>
+        </li>
+        <li class="step-item" id="step-nav-3" data-step="3">
+          <div class="step-number">3</div>
+          <div class="step-title">Data Folder</div>
+        </li>
+        <li class="step-item" id="step-nav-4" data-step="4">
+          <div class="step-number">4</div>
+          <div class="step-title">Controls</div>
+        </li>
+        <li class="step-item" id="step-nav-5" data-step="5">
+          <div class="step-number">5</div>
+          <div class="step-title">Training Status</div>
+        </li>
+      </ol>
+    </nav>
+
+    <!-- Screen 1: Connect -->
+    <main class="screen-card active" id="screen-connect" role="region" aria-labelledby="title-connect">
+      <div class="screen-header">
+        <h1 class="screen-title" id="title-connect">🔗 Join Federated Learning Session</h1>
+        <p class="screen-subtitle">Paste the invitation URI provided by the researcher or Host server.</p>
+      </div>
+
+      <div class="alert-box" id="connect-error" role="alert"></div>
+
+      <div class="form-group">
+        <label for="input-uri" class="form-label">Session Join URI</label>
+        <input type="text" id="input-uri" class="form-input mono" placeholder="hive://host:9000/?s=session_id&t=join_token&fp=ed25519:fingerprint" required>
+        <span class="form-helper">The URI contains the server endpoint, session token, and author key fingerprint.</span>
+      </div>
+
+      <div class="form-group">
+        <label for="input-nickname" class="form-label">Your Contributor Nickname</label>
+        <input type="text" id="input-nickname" class="form-input" placeholder="e.g. Alice's MacBook" value="Contributor Node">
+        <span class="form-helper">Displayed to the Host dashboard; no personal identifiers are shared.</span>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+        <button id="btn-connect" class="btn btn-primary" aria-label="Connect to Hive Session">
+          Connect & Download Package ➔
+        </button>
+      </div>
+    </main>
+
+    <!-- Screen 2: Review & Approve (Mandatory Consent Screen) -->
+    <section class="screen-card" id="screen-review" role="region" aria-labelledby="title-review">
+      <div class="screen-header">
+        <h2 class="screen-title" id="title-review">🛡️ Security Consent & Package Review</h2>
+        <p class="screen-subtitle">Inspect the code and cryptographic identity before allowing execution.</p>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Author Cryptographic Fingerprint (Ed25519)</label>
+        <div class="fingerprint-box">
+          <div class="fingerprint-text" id="review-fingerprint">ED25519:....</div>
+          <p class="form-helper" style="color: var(--color-warning);">
+            ⚠ Please verify this fingerprint with the session Host through a trusted out-of-band channel.
+          </p>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Package Description</label>
+        <p id="review-description" style="color: var(--text-primary); font-size: 0.875rem;">Loading manifest...</p>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Data Requirements</label>
+        <p id="review-requirements" style="color: var(--text-secondary); font-size: 0.8125rem;">—</p>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">SHA-256 Content Digest & Files</label>
+        <div style="display: flex; gap: 0.5rem; align-items: baseline;">
+          <code class="mono" id="review-digest" style="font-size: 0.75rem; color: var(--text-muted);">sha256:...</code>
+        </div>
+        <div id="review-file-list" class="chips-row" style="margin-top: 0.5rem;"></div>
+      </div>
+
+      <!-- Read-only Code Viewer -->
+      <div class="form-group">
+        <label class="form-label">Read-Only Code Viewer</label>
+        <div class="code-viewer-container" id="code-viewer">
+          <div class="code-viewer-tabs">
+            <button class="code-tab-btn active" data-file="model.py">model.py</button>
+            <button class="code-tab-btn" data-file="preprocess.py">preprocess.py</button>
+            <button class="code-tab-btn" data-file="requirements.txt">requirements.txt</button>
+          </div>
+          <pre class="code-view-pre" id="code-display"># Select a tab above to view source code</pre>
+        </div>
+      </div>
+
+      <!-- Static AST Lint Findings -->
+      <div class="form-group">
+        <label class="form-label">Static AST Security Lint Results</label>
+        <div id="review-lint-list" style="background: var(--bg-app); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 0.75rem; font-size: 0.8125rem;">
+          <span style="color: var(--color-success);">✔ No suspicious imports or banned calls found.</span>
+        </div>
+      </div>
+
+      <!-- Sandbox Mode & Acknowledgement -->
+      <div class="form-group" style="padding: 1rem; background: var(--bg-surface-elevated); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+          <span class="form-label">Sandbox Isolation Mode</span>
+          <span class="badge badge-warning" id="review-sandbox-mode">Process (Reduced Isolation)</span>
+        </div>
+        <div id="sandbox-ack-container" style="display: flex; align-items: flex-start; gap: 0.75rem;">
+          <input type="checkbox" id="check-sandbox-ack" style="margin-top: 0.25rem;">
+          <label for="check-sandbox-ack" style="font-size: 0.8125rem; color: var(--text-primary); cursor: pointer;">
+            I understand this package will run on my device in <strong>reduced isolation mode</strong> (plain subprocess with resource caps, without full Docker container isolation). I trust this host author.
+          </label>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; gap: 1rem; margin-top: 1rem;">
+        <button id="btn-decline-package" class="btn btn-danger" aria-label="Decline and leave session">
+          ❌ Decline & Leave
+        </button>
+        <button id="btn-approve-package" class="btn btn-primary" aria-label="Approve package and continue to data folder selection">
+          ✔ Approve & Continue ➔
+        </button>
+      </div>
+    </section>
+
+    <!-- Screen 3: Data Folder Selection -->
+    <section class="screen-card" id="screen-data" role="region" aria-labelledby="title-data">
+      <div class="screen-header">
+        <h2 class="screen-title" id="title-data">📁 Select Local Private Data Folder</h2>
+        <p class="screen-subtitle">Your private data is never uploaded. Only the sample count is shared with the host.</p>
+      </div>
+
+      <div class="reassurance-banner">
+        <span>🔒</span>
+        <span>Only the sample count leaves this device — never file names or raw content.</span>
+      </div>
+
+      <div class="form-group">
+        <label for="input-data-path" class="form-label">Local Dataset Directory Path</label>
+        <div style="display: flex; gap: 0.5rem;">
+          <input type="text" id="input-data-path" class="form-input mono" style="flex: 1;" placeholder="/path/to/local/data" required>
+          <button id="btn-browse-folder" class="btn btn-secondary" type="button" aria-label="Open directory browser">
+            📂 Browse...
+          </button>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 1rem; align-items: center;">
+        <button id="btn-validate-data" class="btn btn-primary" type="button" aria-label="Validate local dataset">
+          Validate Dataset
+        </button>
+        <div id="data-validation-result" style="display: none; align-items: center; gap: 0.5rem; font-size: 0.875rem;">
+          <span id="sample-count-badge" class="badge badge-success">0 Samples Verified</span>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; margin-top: 1.5rem;">
+        <button class="btn btn-secondary btn-prev-step" data-target="2">⬅ Back</button>
+        <button id="btn-data-continue" class="btn btn-primary" disabled>Proceed to Controls ➔</button>
+      </div>
+    </section>
+
+    <!-- Screen 4: Controls (Resource Toggles) -->
+    <section class="screen-card" id="screen-controls" role="region" aria-labelledby="title-controls">
+      <div class="screen-header">
+        <h2 class="screen-title" id="title-controls">⚙️ Local Resource Controls & Preferences</h2>
+        <p class="screen-subtitle">Configure hardware throttling and pacing. Changes apply immediately.</p>
+      </div>
+
+      <div class="reassurance-banner" id="gating-decision-note" style="background: var(--bg-surface-elevated); border-color: var(--border-color); color: var(--text-primary);">
+        <span>ℹ️</span>
+        <span id="gating-note-text">Checking system load and readiness...</span>
+      </div>
+
+      <div class="controls-grid">
+        <div class="toggle-switch">
+          <div>
+            <div class="form-label">Train only when idle</div>
+            <div class="form-helper">Pause training if user input or CPU activity occurs</div>
+          </div>
+          <input type="checkbox" id="toggle-only-idle" checked>
+        </div>
+
+        <div class="range-control">
+          <div class="range-header">
+            <span>Max CPU Usage</span>
+            <span id="val-max-cpu" class="mono">50%</span>
+          </div>
+          <input type="range" id="slider-max-cpu" min="10" max="100" step="5" value="50">
+        </div>
+
+        <div class="range-control">
+          <div class="range-header">
+            <span>Idle CPU Threshold</span>
+            <span id="val-cpu-threshold" class="mono">50%</span>
+          </div>
+          <input type="range" id="slider-cpu-threshold" min="10" max="90" step="5" value="50">
+        </div>
+
+        <div class="range-control">
+          <div class="range-header">
+            <span>User Idle Delay</span>
+            <span id="val-idle-minutes" class="mono">3 min</span>
+          </div>
+          <input type="range" id="slider-idle-minutes" min="1" max="15" step="1" value="3">
+        </div>
+
+        <div class="form-group" style="padding: 0.75rem; background: var(--bg-surface-elevated); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+          <label for="input-max-rounds" class="form-label">Train for N Rounds (0 = unlimited)</label>
+          <input type="number" id="input-max-rounds" class="form-input" min="0" max="1000" value="0">
+        </div>
+
+        <div class="form-group" style="padding: 0.75rem; background: var(--bg-surface-elevated); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+          <label for="input-max-ram" class="form-label">Max RAM Limit (MB)</label>
+          <input type="number" id="input-max-ram" class="form-input" min="512" max="65536" value="4096">
+        </div>
+
+        <div class="toggle-switch">
+          <div>
+            <div class="form-label">Use GPU Acceleration</div>
+            <div class="form-helper">Enable CUDA / MPS if available</div>
+          </div>
+          <input type="checkbox" id="toggle-use-gpu">
+        </div>
+
+        <div class="toggle-switch">
+          <div>
+            <div class="form-label">Pause on Battery</div>
+            <div class="form-helper">Train only when plugged into AC power</div>
+          </div>
+          <input type="checkbox" id="toggle-pause-battery">
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+        <div class="button-group">
+          <button id="btn-pause-client" class="btn btn-warning">⏸ Pause Training</button>
+          <button id="btn-leave-client" class="btn btn-danger">🚪 Leave Session & Clear Cache</button>
+        </div>
+        <button id="btn-controls-continue" class="btn btn-primary">Go to Live Status ➔</button>
+      </div>
+    </section>
+
+    <!-- Screen 5: Status & What Leaves My Device -->
+    <section class="screen-card" id="screen-status" role="region" aria-labelledby="title-status">
+      <div class="screen-header">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+          <div>
+            <h2 class="screen-title" id="title-status">📊 Training Status & Transparency</h2>
+            <p class="screen-subtitle" id="client-state-reason">Monitoring federated round orchestration...</p>
+          </div>
+          <span class="badge badge-success" id="client-state-badge">READY</span>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+        <div class="card">
+          <span class="summary-metric-label">Current Round</span>
+          <div class="summary-metric-value" id="client-round-display">Round 0</div>
+        </div>
+        <div class="card">
+          <span class="summary-metric-label">Cumulative Data Uploaded</span>
+          <div class="summary-metric-value mono" id="client-bytes-uploaded" style="color: var(--color-primary);">0 B</div>
+        </div>
+        <div class="card">
+          <span class="summary-metric-label">Differential Privacy Bounds</span>
+          <div class="summary-metric-value" id="client-dp-summary" style="font-size: 1.1rem;">ε = Active</div>
+        </div>
+      </div>
+
+      <div class="card" aria-labelledby="title-live-training">
+        <h3 class="card-title" id="title-live-training">Local Sandbox Progress</h3>
+        <div id="live-training-progress" class="mono" style="padding: 0.75rem; background: var(--bg-app); border-radius: var(--radius-sm); border: 1px solid var(--border-color); font-size: 0.8125rem;">
+          Idle — Waiting for next federated training round from Host...
+        </div>
+      </div>
+
+      <div class="card" aria-labelledby="title-history">
+        <h3 class="card-title" id="title-history">Contributed Rounds History</h3>
+        <div class="table-responsive">
+          <table id="table-client-history" aria-label="Contributor history table">
+            <thead>
+              <tr>
+                <th scope="col">Round</th>
+                <th scope="col">Train Loss</th>
+                <th scope="col">Eval Acc</th>
+                <th scope="col">Duration</th>
+                <th scope="col">Uploaded</th>
+                <th scope="col">Accepted?</th>
+              </tr>
+            </thead>
+            <tbody id="client-history-body">
+              <tr>
+                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">
+                  No rounds contributed yet. Training will trigger automatically when the Host opens a round.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- What Leaves My Device Transparency Panel -->
+      <div class="card" id="panel-what-leaves" aria-labelledby="title-what-leaves">
+        <h3 class="card-title" id="title-what-leaves">🔍 What Leaves My Device (Transparency Guarantee)</h3>
+        <div class="reassurance-banner" style="margin-bottom: 0.75rem;">
+          <span>🔒</span>
+          <strong>Your raw data files are never uploaded. Only mathematical model weight deltas leave this machine.</strong>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 0.75rem;">
+          <div>
+            <span class="summary-metric-label">JSON Metadata Keys Sent</span>
+            <div id="preview-json-keys" class="mono" style="font-size: 0.8125rem; color: var(--text-secondary); margin-top: 0.25rem;">
+              round_id, num_samples, delta_sha256, metrics
+            </div>
+          </div>
+          <div>
+            <span class="summary-metric-label">Tensor Parameter Count</span>
+            <div id="preview-tensor-count" class="mono" style="font-size: 0.8125rem; color: var(--text-secondary); margin-top: 0.25rem;">
+              0 tensors
+            </div>
+          </div>
+          <div>
+            <span class="summary-metric-label">Total Delta Size</span>
+            <div id="preview-bytes" class="mono" style="font-size: 0.8125rem; color: var(--text-secondary); margin-top: 0.25rem;">
+              0 B
+            </div>
+          </div>
+          <div>
+            <span class="summary-metric-label">Delta SHA-256 Digest</span>
+            <div id="preview-sha256" class="mono" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem; word-break: break-all;">
+              —
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Tensors Transmitted</label>
+          <div id="preview-tensors-list" class="mono" style="max-height: 140px; overflow-y: auto; background: var(--bg-app); padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); font-size: 0.75rem; color: var(--text-secondary);">
+            No update generated yet.
+          </div>
+        </div>
+
+        <p style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; margin-top: 0.5rem;">
+          <strong>Honest Technical Limitation:</strong> Even with strictly isolated weight submissions, parameter updates can theoretically leak subtle dataset properties in the absence of noise. Differential Privacy adds calibrated perturbation to mathematically bound this risk.
+        </p>
+      </div>
+    </section>
+
+    <!-- Always-visible Footer -->
+    <footer class="footer-status-bar" role="contentinfo">
+      <div class="footer-left">
+        <span id="footer-node-id" class="mono">Node: Initializing...</span>
+        <span id="footer-sandbox" class="badge badge-warning">Process Mode</span>
+      </div>
+      <div class="footer-right">
+        <span id="footer-gating-note">Ready</span>
+        <span>•</span>
+        <span id="footer-bytes-uploaded" class="mono">Uploaded: 0 B</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Folder Browser Modal -->
+  <div class="modal-overlay" id="folder-modal" role="dialog" aria-modal="true" aria-labelledby="modal-folder-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-folder-title" style="font-size: 1rem; font-weight: 700;">📂 Choose Data Directory</h3>
+        <button id="btn-close-modal" class="btn btn-secondary btn-sm" aria-label="Close modal">✕</button>
+      </div>
+      <div style="padding: 0.5rem 1.25rem; background: var(--bg-surface-elevated); border-bottom: 1px solid var(--border-color); font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); word-break: break-all;" id="modal-current-path">
+        /home
+      </div>
+      <div class="modal-body" id="modal-dir-list">
+        <!-- Directory items populated by JavaScript -->
+      </div>
+      <div class="modal-footer">
+        <button id="btn-modal-cancel" class="btn btn-secondary btn-sm">Cancel</button>
+        <button id="btn-modal-select" class="btn btn-primary btn-sm">Select Current Directory</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

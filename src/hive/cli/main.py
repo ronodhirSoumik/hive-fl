@@ -1,4 +1,4 @@
-﻿"""
+"""
 Hive CLI main entrypoint.
 Command-line interface for hosting sessions, joining federated training,
 building packages, key management, running diagnostics and automated demos.
@@ -9,10 +9,19 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+import secrets
+import webbrowser
 import typer
+import uvicorn
 
+from hive.client.agent import ClientAgent
+from hive.client.config_store import ClientConfigStore, get_client_dir
+from hive.client.local_api import create_local_app
+from hive.client.resources import ResourceController
 from hive.core.config import HostConfig
 from hive.core.errors import HiveError
+from hive.core.schemas import DataRequirements, Hyperparameters, Manifest, ResourcePolicy
+from hive.core.uri import parse_hive_uri
 from hive.host.app import run_host
 from hive.host.tunnel import run_doctor
 from hive.package.builder import build_package, build_package_from_dir
@@ -24,7 +33,6 @@ from hive.package.signing import (
     public_key_to_hex,
     save_private_key,
 )
-from hive.core.schemas import DataRequirements, Hyperparameters, Manifest
 
 app = typer.Typer(
     name="hive",
@@ -39,9 +47,14 @@ app.add_typer(package_app, name="package")
 @app.command()
 def keygen(
     out: str = typer.Option("~/.hive/keys/author_key.pem", "--out", "-o", help="Output path for Ed25519 private key"),
+    name: str | None = typer.Option(None, "--name", help="Key name (saved to ~/.hive/keys/<name>.pem)"),
 ) -> None:
     """Generate a new Ed25519 signing keypair for model packaging."""
-    out_p = Path(out).expanduser()
+    if name:
+        out_p = Path(f"~/.hive/keys/{name}.pem").expanduser()
+    else:
+        out_p = Path(out).expanduser()
+    out_p.parent.mkdir(parents=True, exist_ok=True)
     priv, pub = generate_keypair()
     save_private_key(priv, out_p)
     fp = fingerprint(pub)
@@ -52,11 +65,14 @@ def keygen(
 
 @app.command()
 def host(
-    package: str = typer.Option(..., "--package", "-p", help="Path to .hivepkg model package"),
+    package: str | None = typer.Option(None, "--package", "-p", help="Path to .hivepkg model package"),
+    model_path: str | None = typer.Option(None, "--model-path", help="Path to model.py for on-the-fly packaging"),
+    preprocessor_path: str | None = typer.Option(None, "--preprocessor-path", help="Path to preprocess.py for on-the-fly packaging"),
+    src: str | None = typer.Option(None, "--src", help="Source directory containing model.py and preprocess.py"),
     rounds: int = typer.Option(10, "--rounds", "-r", help="Total number of federated rounds"),
     min_clients: int = typer.Option(2, "--min-clients", "-m", help="Minimum clients required per round"),
     max_clients: int = typer.Option(50, "--max-clients", help="Maximum clients per round"),
-    aggregation: str = typer.Option("fedavg", "--aggregation", help="Aggregation strategy"),
+    aggregation: str = typer.Option("fedavg", "--aggregation", help="Aggregation strategy: fedavg, trimmed-mean, median, krum, multi-krum"),
     round_timeout: int = typer.Option(600, "--round-timeout", help="Round timeout in seconds"),
     server_clip: float | None = typer.Option(None, "--server-clip", help="Server L2 clipping norm"),
     tunnel: str = typer.Option("none", "--tunnel", help="Tunnel mode: none, cloudflared, manual"),
@@ -66,8 +82,48 @@ def host(
     require_approval: bool = typer.Option(False, "--require-approval", help="Require manual node approval"),
     workdir: str = typer.Option(".hive/host", "--workdir", help="Directory for database and checkpoints"),
     resume: bool = typer.Option(False, "--resume", help="Resume previous session if present"),
+    key: str | None = typer.Option(None, "--key", "-k", help="Private key for signing package if packaging on-the-fly"),
 ) -> None:
     """Start a federated learning Host server."""
+    pkg_target: str | None = package
+
+    if not pkg_target:
+        if src:
+            priv_key = load_private_key(key) if key else None
+            if not priv_key:
+                priv_key, _ = generate_keypair()
+            workdir_p = Path(workdir)
+            workdir_p.mkdir(parents=True, exist_ok=True)
+            pkg_target = str(build_package_from_dir(src, priv_key, out_path=str(workdir_p / "session.hivepkg")))
+        elif model_path and preprocessor_path:
+            priv_key = load_private_key(key) if key else None
+            if not priv_key:
+                priv_key, _ = generate_keypair()
+            m_code = Path(model_path).read_text(encoding="utf-8")
+            p_code = Path(preprocessor_path).read_text(encoding="utf-8")
+            manifest = Manifest(
+                package_name="auto-host-package",
+                version="0.1.0",
+                description="Auto-generated host session package",
+                model_entrypoint="model.py:Model",
+                preprocessor_entrypoint="preprocess.py:Preprocessor",
+            )
+            workdir_p = Path(workdir)
+            workdir_p.mkdir(parents=True, exist_ok=True)
+            pkg_target = str(
+                build_package(
+                    manifest=manifest,
+                    model_code=m_code,
+                    preprocessor_code=p_code,
+                    requirements_text="torch\nnumpy",
+                    private_key=priv_key,
+                    out_path=str(workdir_p / "session.hivepkg"),
+                )
+            )
+        else:
+            typer.echo("Error: Must provide either --package or (--model-path and --preprocessor-path) or --src.")
+            raise typer.Exit(code=1)
+
     cfg = HostConfig(
         api_port=api_port,
         admin_port=admin_port,
@@ -83,9 +139,93 @@ def host(
         workdir=Path(workdir),
     )
     try:
-        asyncio.run(run_host(cfg, package, resume=resume))
+        asyncio.run(run_host(cfg, pkg_target, resume=resume))
     except KeyboardInterrupt:
         typer.echo("\nHost server stopped by user.")
+
+
+async def _run_client_join(
+    uri: str,
+    data_dir: str | None,
+    nickname: str,
+    ui_port: int,
+    no_ui: bool,
+    sandbox: str,
+    max_cpu: int,
+    only_idle: bool,
+    rounds: int,
+    use_gpu: bool,
+    auto_approve_fingerprint: str | None,
+    auto_start: bool,
+) -> None:
+    parsed = parse_hive_uri(uri)
+    if auto_approve_fingerprint:
+        if not parsed.fingerprint or auto_approve_fingerprint != parsed.fingerprint:
+            typer.echo(
+                f"Security error: --auto-approve-fingerprint '{auto_approve_fingerprint}' does not match URI fingerprint '{parsed.fingerprint}'. Auto-approval rejected."
+            )
+            raise typer.Exit(code=1)
+
+    work_dir = get_client_dir()
+    policy = ResourcePolicy(
+        max_cpu_percent=max_cpu,
+        only_when_idle=only_idle,
+        max_rounds=rounds,
+        use_gpu=use_gpu,
+    )
+    store = ClientConfigStore(work_dir)
+    store.save_policy(policy)
+    res_ctrl = ResourceController(policy=policy, config_store=store)
+
+    agent = ClientAgent(
+        work_dir=work_dir,
+        config_store=store,
+        resource_controller=res_ctrl,
+        sandbox_mode=sandbox,
+    )
+
+    ui_token = secrets.token_urlsafe(24)
+    ui_task: asyncio.Task[None] | None = None
+    ui_server: uvicorn.Server | None = None
+
+    if not no_ui:
+        local_app = create_local_app(agent, ui_token=ui_token)
+        ui_config = uvicorn.Config(local_app, host="127.0.0.1", port=ui_port, log_level="warning")
+        ui_server = uvicorn.Server(ui_config)
+        ui_task = asyncio.create_task(ui_server.serve())
+        ui_url = f"http://127.0.0.1:{ui_port}/?token={ui_token}"
+        typer.echo(f"Contributor Local Web UI: {ui_url}")
+        try:
+            webbrowser.open(ui_url)
+        except Exception:
+            pass
+
+    agent.start()
+
+    typer.echo(f"Connecting to Hive session at {uri}...")
+    await agent.connect(uri, nickname=nickname)
+
+    if auto_approve_fingerprint and parsed.fingerprint:
+        agent.give_consent()
+        typer.echo(f"✔ Auto-approved verified host key fingerprint: {parsed.fingerprint}")
+
+    if data_dir:
+        val_res = await agent.validate_data(data_dir)
+        typer.echo(f"✔ Validated local dataset: {val_res.get('num_samples', 0)} samples verified.")
+        if auto_start:
+            typer.echo("✔ Contributor client ready and participating in rounds.")
+
+    try:
+        while agent._running and (agent.state != "LEFT"):
+            await asyncio.sleep(1.0)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await agent.leave()
+        if ui_server:
+            ui_server.should_exit = True
+        if ui_task:
+            ui_task.cancel()
 
 
 @app.command()
@@ -104,7 +244,25 @@ def join(
     auto_start: bool = typer.Option(False, "--auto-start", help="Automatically start training after validation"),
 ) -> None:
     """Join an active Hive federated learning session as a compute contributor."""
-    typer.echo(f"Connecting to Hive session at {uri}...")
+    try:
+        asyncio.run(
+            _run_client_join(
+                uri=uri,
+                data_dir=data_dir,
+                nickname=nickname,
+                ui_port=ui_port,
+                no_ui=no_ui,
+                sandbox=sandbox,
+                max_cpu=max_cpu,
+                only_idle=only_idle,
+                rounds=rounds,
+                use_gpu=use_gpu,
+                auto_approve_fingerprint=auto_approve_fingerprint,
+                auto_start=auto_start,
+            )
+        )
+    except KeyboardInterrupt:
+        typer.echo("\nContributor client stopped by user. Gracefully leaving session.")
 
 
 @package_app.command("build")
@@ -239,6 +397,9 @@ def demo(
 ) -> None:
     """Run the BirdSound-Lite federated learning demo."""
     typer.echo("Starting Hive BirdSound-Lite demo...")
+    typer.echo(f"  Mode: {'Docker' if docker else 'Local Process'}")
+    typer.echo(f"  Differential Privacy: {'Enabled' if dp else 'Disabled'}")
+    typer.echo(f"  Manual UI Interaction: {'Enabled' if manual else 'Auto-starting'}")
 
 
 @app.command("verify-demo")
