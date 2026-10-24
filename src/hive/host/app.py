@@ -6,10 +6,12 @@ Builds and serves both the Public FL API and the localized Admin Dashboard API.
 from __future__ import annotations
 
 import asyncio
+import os
 import secrets
 from pathlib import Path
 from typing import Any
 
+import torch
 import uvicorn
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -120,9 +122,21 @@ async def run_host(
     db_path.parent.mkdir(parents=True, exist_ok=True)
     db = HostDatabase(db_path)
 
-    # Extract initial weights or generate synthetic placeholder for round 0
-    # If checkpoints exist, orchestrator start(resume=resume) will load them
+    # Extract initial weights from package, or fallback to placeholder
     initial_weights = {"placeholder.weight": torch.zeros((1, 1), dtype=torch.float32)}
+    try:
+        import tempfile
+        from hive.package.reader import extract_package
+        from hive.client.worker.trainer import resolve_entrypoint
+        with tempfile.TemporaryDirectory() as tmp_pkg_dir:
+            pkg_manifest = extract_package(pkg_p, tmp_pkg_dir, expected_fingerprint=host_key_fp)
+            model_cls = resolve_entrypoint(Path(tmp_pkg_dir), pkg_manifest.model_entrypoint)
+            model_inst = model_cls()
+            extracted_weights = {k: v.detach().cpu().to(torch.float32) for k, v in model_inst.state_dict().items()}
+            if extracted_weights:
+                initial_weights = extracted_weights
+    except Exception as e:
+        logger.warning(f"Could not extract model weights from package, using placeholder: {e}")
 
     orchestrator = Orchestrator(
         config=config,
@@ -181,7 +195,8 @@ async def run_host(
     public_app, admin_app = create_host_apps(config, orchestrator, pkg_p)
 
     pub_config = uvicorn.Config(public_app, host="0.0.0.0", port=config.api_port, log_level="warning")
-    admin_config = uvicorn.Config(admin_app, host="127.0.0.1", port=config.admin_port, log_level="warning")
+    admin_host = os.getenv("HIVE_ADMIN_HOST", "127.0.0.1")
+    admin_config = uvicorn.Config(admin_app, host=admin_host, port=config.admin_port, log_level="warning")
 
     pub_server = uvicorn.Server(pub_config)
     admin_server = uvicorn.Server(admin_config)

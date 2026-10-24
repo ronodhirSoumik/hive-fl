@@ -47,6 +47,8 @@ class ClientConfigStore:
         """Persists resource policy to disk."""
         self.policy_file.write_text(json.dumps(policy.model_dump(), indent=2), encoding="utf-8")
 
+    save_policy = save_resource_policy
+
     # ---------------- Node Credentials ----------------
 
     def load_node_credentials(self) -> dict[str, str] | None:

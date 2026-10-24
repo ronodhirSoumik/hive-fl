@@ -31,7 +31,9 @@ from hive.client.agent import ClientAgent
 from hive.core.errors import HiveError
 from hive.core.schemas import ResourcePolicy
 
-ALLOWED_HOSTS = {"127.0.0.1", "localhost", "testserver"}
+ALLOWED_HOSTS = {"127.0.0.1", "localhost", "testserver"} | {
+    h.strip() for h in os.getenv("HIVE_ALLOWED_HOSTS", "").split(",") if h.strip()
+}
 
 
 def create_local_app(agent: ClientAgent, ui_token: str | None = None) -> FastAPI:
@@ -44,7 +46,8 @@ def create_local_app(agent: ClientAgent, ui_token: str | None = None) -> FastAPI
     # CORS configuration limited to localhost
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://127.0.0.1:8765", "http://localhost:8765"],
+        allow_origins=["http://127.0.0.1:8765", "http://localhost:8765", "http://127.0.0.1:8766", "http://localhost:8766"],
+        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

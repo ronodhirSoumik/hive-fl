@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 import secrets
 import webbrowser
@@ -157,6 +158,7 @@ async def _run_client_join(
     use_gpu: bool,
     auto_approve_fingerprint: str | None,
     auto_start: bool,
+    pause_on_battery: bool = True,
 ) -> None:
     parsed = parse_hive_uri(uri)
     if auto_approve_fingerprint:
@@ -172,9 +174,10 @@ async def _run_client_join(
         only_when_idle=only_idle,
         max_rounds=rounds,
         use_gpu=use_gpu,
+        pause_on_battery=pause_on_battery,
     )
     store = ClientConfigStore(work_dir)
-    store.save_policy(policy)
+    store.save_resource_policy(policy)
     res_ctrl = ResourceController(policy=policy, config_store=store)
 
     agent = ClientAgent(
@@ -190,7 +193,8 @@ async def _run_client_join(
 
     if not no_ui:
         local_app = create_local_app(agent, ui_token=ui_token)
-        ui_config = uvicorn.Config(local_app, host="127.0.0.1", port=ui_port, log_level="warning")
+        ui_host = os.getenv("HIVE_UI_HOST", "127.0.0.1")
+        ui_config = uvicorn.Config(local_app, host=ui_host, port=ui_port, log_level="warning")
         ui_server = uvicorn.Server(ui_config)
         ui_task = asyncio.create_task(ui_server.serve())
         ui_url = f"http://127.0.0.1:{ui_port}/?token={ui_token}"
@@ -242,6 +246,7 @@ def join(
     use_gpu: bool = typer.Option(False, "--use-gpu", help="Enable GPU training if available"),
     auto_approve_fingerprint: str | None = typer.Option(None, "--auto-approve-fingerprint", help="Auto-consent if host key matches"),
     auto_start: bool = typer.Option(False, "--auto-start", help="Automatically start training after validation"),
+    pause_on_battery: bool = typer.Option(True, "--pause-on-battery/--no-pause-on-battery", help="Pause training when running on battery"),
 ) -> None:
     """Join an active Hive federated learning session as a compute contributor."""
     try:
@@ -259,6 +264,7 @@ def join(
                 use_gpu=use_gpu,
                 auto_approve_fingerprint=auto_approve_fingerprint,
                 auto_start=auto_start,
+                pause_on_battery=pause_on_battery,
             )
         )
     except KeyboardInterrupt:
