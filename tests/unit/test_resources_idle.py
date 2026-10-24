@@ -85,6 +85,7 @@ def test_can_train_gating_conditions(tmp_path: Path) -> None:
     # 4. User active (idle minutes)
     ctrl_active = ResourceController(
         policy=ResourcePolicy(only_when_idle=True, idle_minutes=2.0),
+        battery_provider=lambda: False,
         idle_provider=lambda: 30.0,  # 30s idle < 120s required
         config_store=store,
     )
@@ -95,6 +96,7 @@ def test_can_train_gating_conditions(tmp_path: Path) -> None:
     # 5. CPU busy
     ctrl_busy = ResourceController(
         policy=ResourcePolicy(only_when_idle=True, idle_cpu_threshold=25.0),
+        battery_provider=lambda: False,
         idle_provider=lambda: 300.0,  # idle enough
         cpu_provider=lambda: 60.0,  # 60% > 25% threshold
         config_store=store,

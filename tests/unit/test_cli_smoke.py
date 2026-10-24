@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 
 from hive.cli.main import app
 
-runner = CliRunner()
+runner = CliRunner(env={"COLUMNS": "120"})
 
 
 def test_cli_help() -> None:
@@ -88,7 +88,7 @@ def test_cli_join_help() -> None:
 
 def test_cli_join_auto_approve_fingerprint_mismatch() -> None:
     """Security invariant: --auto-approve-fingerprint MUST be rejected if it doesn't match the URI."""
-    uri = "hive://127.0.0.1:9000/?s=test_session&t=test_token&fp=ed25519:correct_fp"
+    uri = "hive://127.0.0.1:9000/test_session?t=test_token&fp=ed25519:correct_fp"
     result = runner.invoke(
         app,
         ["join", "--uri", uri, "--auto-approve-fingerprint", "ed25519:wrong_attacker_fp", "--no-ui"],

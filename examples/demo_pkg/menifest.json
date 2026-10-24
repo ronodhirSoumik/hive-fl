@@ -1,0 +1,20 @@
+{
+  "package_name": "demo-classifier",
+  "version": "0.1.0",
+  "description": "Federated Demo Classifier for Hive FL",
+  "model_entrypoint": "model.py:Model",
+  "preprocessor_entrypoint": "preprocess.py:Preprocessor",
+  "loss": "cross_entropy",
+  "metrics": "accuracy",
+  "hyperparameters": {
+    "local_epochs": 2,
+    "batch_size": 16,
+    "learning_rate": 0.01,
+    "optimizer": "adam",
+    "eval_split": 0.2
+  },
+  "data_requirements": {
+    "description": "Synthetic dataset with 4-dimensional input features and binary labels",
+    "min_samples": 10
+  }
+}
